@@ -4,7 +4,7 @@ function fetchPreSigned(e){
     var filename = fakepath.split("\\").pop()
     
     e.preventDefault();
-    var url = "https://964dvf7hjj.execute-api.ap-southeast-1.amazonaws.com/prod/upload";
+    var url = "API-INVOKE-URL";
     var obj = {
         file : filename
     };
