@@ -10,3 +10,6 @@
 ### Upload frontend code to S3 Website Bucket
 - Get API Invoke URL from CloudFormation `Output` and paste into `./html/js/api.js`
 - Upload `index.html` and `./js/api.js` to root folder of S3 Website Bucket
+
+## Diagram
+![diagram](diagram.jpg)
