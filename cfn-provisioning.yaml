@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Presigned URL S3 Uploader
+
+Parameters:
+  S3WebsiteBucketName:
+    Type: String
+    Description: 's3-bucket-name-for-hosting-index.html'
+
+  S3UploadBucketName:
+    Type: String
+    Description: 's3-bucket-name-for-upload-files'
+
+  SuccessRedirectURL:
+    Type: String
+    Description: 'URL to redirect if upload is successful'
+    Default: 'http://www.example.com/'
+
+  ApiGatewayResourceName:
+    Type: String
+    Default: 'upload'
+
+Resources:
+
+  ### Creating website-hosting bucket ###
+  S3WebsiteBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref S3WebsiteBucketName
+      WebsiteConfiguration:
+        IndexDocument: 'index.html'
+
+  ### Updating Bucket policy ###
+  S3WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3WebsiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub '${S3WebsiteBucket.Arn}/*'
+
+  ### Creating S3 bucket to store files upload ###
+  S3UploadBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref S3UploadBucketName
+
+  ### Creating IAM execution role for lambda function ###
+  IamRoleLambdaExecution:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: '/'
+      RoleName: !Sub '${AWS::StackName}-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: !Sub "${AWS::StackName}-policy"
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action: logs:CreateLogGroup
+            Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+          - Effect: Allow
+            Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource:
+            - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}:*'
+          - Effect: Allow
+            Action:
+            - s3:PutObject
+            Resource:
+            - !Sub '${S3UploadBucket.Arn}/*'
+
+  ### Creating Lambda Function ###
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref AWS::StackName
+      Environment:
+        Variables:
+          bucket: !Ref S3UploadBucket
+          redirect: !Ref SuccessRedirectURL
+      Code:
+        ZipFile: !Sub |
+          import json
+          import boto3
+          import os
+          from random import *
+          import datetime
+
+          def lambda_handler(event, context):
+              # TODO implement
+              rx = randint(10000,99999)
+              dx = datetime.datetime.now()
+              s3 = boto3.client("s3")
+              bucketname = os.environ['bucket']
+              keyname = str(dx.year) + "-" + str(dx.month) + "-" + str(dx.day) + "/" + str(rx) + "-" + event['file']
+              redirect_url = os.environ['redirect']
+
+              
+              URL = s3.generate_presigned_post(
+                  bucketname, keyname, Fields=None, Conditions=[{'success_action_redirect': redirect_url}], ExpiresIn=300
+              )
+              
+              return {
+                  "statusCode" : 200,
+                  "url" : URL['url'],
+                  "key" : URL['fields']['key'],
+                  "accid" : URL['fields']['AWSAccessKeyId'],
+                  "xamztoken" : URL['fields']['x-amz-security-token'],
+                  "plc" : URL['fields']['policy'],
+                  "sig" : URL['fields']['signature']
+              }
+      MemorySize: 128
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt 'IamRoleLambdaExecution.Arn'
+
+  ### Creating REST API ###
+  RestApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Ref AWS::StackName
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+    DependsOn: LambdaFunction
+
+  ### Creating API Resource ###
+  RestApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApiGateway
+      ParentId: !GetAtt RestApiGateway.RootResourceId
+      PathPart: !Ref ApiGatewayResourceName
+
+  ### Creating API POST Method ###
+  RestApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}/invocations
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              {"method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+              "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,POST'",
+              "method.response.header.Access-Control-Allow-Origin": "'*'"}
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseParameters:
+            {"method.response.header.Access-Control-Allow-Headers": "true",
+            "method.response.header.Access-Control-Allow-Methods": "true",
+            "method.response.header.Access-Control-Allow-Origin": "true"}
+      ResourceId: !Ref RestApiResource
+      RestApiId: !Ref RestApiGateway
+
+  ### Creating API Option Method ###
+  RestApiMethodOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationHttpMethod: OPTIONS
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates: {"application/json" : "{\"statusCode\": 200}"}
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              { "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+              "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,POST'",
+              "method.response.header.Access-Control-Allow-Origin": "'*'"}
+      MethodResponses:
+        - ResponseModels: {"application/json": "Empty"}
+          StatusCode: '200'
+          ResponseParameters:
+            {"method.response.header.Access-Control-Allow-Headers": "true",
+            "method.response.header.Access-Control-Allow-Methods": "true",
+            "method.response.header.Access-Control-Allow-Origin": "true"}
+      ResourceId: !Ref RestApiResource
+      RestApiId: !Ref RestApiGateway
+
+  ### Deploying API Gateway ###
+  RestApiDeploy:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref RestApiGateway
+      StageName: prod
+    DependsOn:
+      - RestApiGateway
+      - RestApiMethod
+      - RestApiMethodOptions
+
+  ### Creating Lambda Invoke Permission ###
+  LambdaApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref AWS::StackName
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiGateway}/*/POST/${ApiGatewayResourceName}'
+    DependsOn: 
+      - LambdaFunction
+      - RestApiGateway
+
+Outputs:
+
+  S3WebsiteUrl:
+    Description: 'S3 Website Hosting URL'
+    Value: !GetAtt 'S3WebsiteBucket.WebsiteURL'
+
+  RestApiGatewayInvokeUrl:
+    Description: 'API Gateway Invoke URL'
+    Value: !Sub "https://${RestApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/${ApiGatewayResourceName}"

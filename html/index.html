@@ -1,0 +1,22 @@
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <script src="./js/api.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1/jquery.min.js"></script>
+  </head>
+  <body>
+    <h2>S3 File Upload</h2>
+    <form onsubmit="return validateForm()" id="superform" enctype="multipart/form-data" method="post">
+        <input id="key" type="hidden" name="key"/>
+        <input id="AWSAccessKeyId" type="hidden" name="AWSAccessKeyId"/>
+        <input id="xamzsecuritytoken" type="hidden" name="x-amz-security-token"/>
+        <input id="policy" type="hidden" name="policy"/>
+        <input id="signature" type="hidden" name="signature"/>
+        <input id="status" type="hidden" name="success_action_redirect" value="http://www.example.com/" />
+        <input onchange="return fetchPreSigned(event)" id="file" type="file" name="file" /><br><br>
+        <button id="submit" type="submit" name="submit"> Upload</button>
+    </form>
+  </body>
+</html>
+    
+
