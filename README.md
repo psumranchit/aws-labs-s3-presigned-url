@@ -1,4 +1,4 @@
-﻿# aws-labs-s3-presigned-url
+﻿# aws-labs-s3-presigned-url-post
 ## Step 1
 ### Provision resources using CloudFormation template. Following resources will be created
 - 2 S3-Buckets. One for hosting frontend upload page. Another for storing upload files
